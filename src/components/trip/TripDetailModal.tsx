@@ -11,7 +11,6 @@ import {
   Ship,
   Train,
   Calendar,
-  Users,
 } from "lucide-react";
 import type { TripOption, VehicleType } from "@/types";
 
@@ -210,12 +209,6 @@ export function TripDetailModal({ trip, onClose }: TripDetailModalProps) {
                   <div className="text-sm text-gray">Operator</div>
                   <div className="font-medium text-dark">{trip.operator}</div>
                 </div>
-                {trip.availableSeats > 0 && (
-                  <div className="flex items-center gap-2 text-dark-secondary">
-                    <Users size={18} />
-                    <span>{trip.availableSeats} seats available</span>
-                  </div>
-                )}
               </div>
 
               {/* Price and booking */}

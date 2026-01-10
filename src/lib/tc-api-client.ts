@@ -1,4 +1,5 @@
 import type { TripOption, VehicleType, TripSegment } from "@/types";
+import { buildStationMap } from "./poi-loader";
 
 // API Configuration
 const TC_API_BASE = "https://api.travelier.com/v1/tc_prod";
@@ -96,11 +97,31 @@ function extractDate(isoDateTime: string): string {
   return isoDateTime.split("T")[0];
 }
 
-// Parse station ID to get city name (best effort)
-function parseStationName(stationId: string): string {
-  // Station IDs like THBANBSF - extract readable part
-  // This is a placeholder - actual station names come from context
-  return stationId;
+// Get station name from map, fallback to ID if not found
+function getStationName(stationId: string, stationMap: Map<string, string>): string {
+  return stationMap.get(stationId) || stationId;
+}
+
+// Convert station name to URL slug (lowercase, spaces to dashes)
+function slugifyStationName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, "-")      // Replace spaces with dashes
+    .replace(/[^a-z0-9-]/g, "") // Remove special characters
+    .replace(/-+/g, "-")       // Replace multiple dashes with single
+    .replace(/^-|-$/g, "");    // Remove leading/trailing dashes
+}
+
+// Generate 12go redirect URL
+function generate12goUrl(
+  originName: string,
+  destinationName: string,
+  date: string,
+  pax: number
+): string {
+  const originSlug = slugifyStationName(originName);
+  const destSlug = slugifyStationName(destinationName);
+  return `https://12go.com/en/travel/${originSlug}/${destSlug}?date=${date}&people=${pax}&direction=forward`;
 }
 
 export async function searchItineraries(params: ItineraryParams): Promise<TripOption[]> {
@@ -132,13 +153,19 @@ export async function searchItineraries(params: ItineraryParams): Promise<TripOp
 
   const data: TCApiResponse = await response.json();
 
-  return parseItinerariesResponse(data, departurePoi, arrivalPoi);
+  // Build station map for name lookups (uses cached POI data)
+  const stationMap = await buildStationMap();
+
+  return parseItinerariesResponse(data, departurePoi, arrivalPoi, stationMap, departureDate, pax);
 }
 
 function parseItinerariesResponse(
   data: TCApiResponse,
   departurePoi: string,
-  arrivalPoi: string
+  arrivalPoi: string,
+  stationMap: Map<string, string>,
+  departureDate: string,
+  pax: number
 ): TripOption[] {
   const { vehicles, segments, itineraries } = data;
 
@@ -183,12 +210,12 @@ function parseItinerariesResponse(
       return {
         origin: {
           id: seg.from_station,
-          name: parseStationName(seg.from_station),
+          name: getStationName(seg.from_station, stationMap),
           city: departurePoi, // Will be enriched later
         },
         destination: {
           id: seg.to_station,
-          name: parseStationName(seg.to_station),
+          name: getStationName(seg.to_station, stationMap),
           city: arrivalPoi, // Will be enriched later
         },
         departureTime: extractTime(seg.departure_time),
@@ -201,6 +228,10 @@ function parseItinerariesResponse(
     // Use gross_price for display (includes all fees)
     const price = parseFloat(itinerary.pricing.gross_price.amount);
     const currency = itinerary.pricing.gross_price.currency;
+
+    // Get station names for URL generation
+    const originStationName = getStationName(firstSegment.from_station, stationMap);
+    const destStationName = getStationName(lastSegment.to_station, stationMap);
 
     const trip: TripOption = {
       id: itinerary.id,
@@ -220,15 +251,15 @@ function parseItinerariesResponse(
       availableSeats: itinerary.number_of_available_seats,
       amenities: [], // Not available from this API
       segments: tripSegments,
-      redirectUrl: "", // Will be generated separately
+      redirectUrl: generate12goUrl(originStationName, destStationName, departureDate, pax),
       origin: {
         id: firstSegment.from_station,
-        name: parseStationName(firstSegment.from_station),
+        name: originStationName,
         city: departurePoi,
       },
       destination: {
         id: lastSegment.to_station,
-        name: parseStationName(lastSegment.to_station),
+        name: destStationName,
         city: arrivalPoi,
       },
     };

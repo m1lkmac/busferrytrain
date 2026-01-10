@@ -25,6 +25,9 @@
 *.pem
 *.key
 
+# POI cache
+/.cache/
+
 # certificates (sensitive)
 /certs/
 

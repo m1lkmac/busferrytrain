@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Clock, Users, ExternalLink, Bus, Ship, Train } from "lucide-react";
+import { Clock, ExternalLink, Bus, Ship, Train } from "lucide-react";
 import type { TripOption, VehicleType } from "@/types";
 
 interface TripCardProps {
@@ -131,12 +131,6 @@ export function TripCard({ trip, onSelect, index = 0 }: TripCardProps) {
             >
               {trip.operator}
             </span>
-            {trip.availableSeats > 0 && (
-              <span className="flex items-center gap-1 text-gray">
-                <Users size={14} aria-hidden="true" />
-                {trip.availableSeats} seats
-              </span>
-            )}
           </div>
         </div>
 

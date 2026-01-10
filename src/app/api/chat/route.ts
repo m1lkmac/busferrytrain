@@ -12,8 +12,13 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// System prompt for the travel assistant
-const SYSTEM_PROMPT = `You are a helpful travel assistant for busferrytrain.com, a meta-search engine for ground and sea transportation (buses, ferries, and trains) in Southeast Asia.
+// System prompt for the travel assistant (dynamic to include today's date)
+function getSystemPrompt(): string {
+  const today = new Date().toISOString().split('T')[0];
+
+  return `You are a helpful travel assistant for busferrytrain.com, a meta-search engine for ground and sea transportation (buses, ferries, and trains) in Southeast Asia.
+
+Today's date is ${today}. Use this to calculate dates when users say "tomorrow", "next week", etc.
 
 Your role:
 - Help users find the best routes for their journeys
@@ -44,6 +49,7 @@ Example response format when showing trips:
    Operator: 12Go Asia | ฿320
 
 💡 Tip: Night buses save time and a hotel stay!"`;
+}
 
 // Tool definitions
 const tools: Anthropic.Tool[] = [
@@ -128,8 +134,19 @@ async function handleToolCall(
             };
           }
 
+          // Sort by duration (ascending), then by price (ascending) as tiebreaker
+          const sortedTrips = [...trips].sort((a, b) => {
+            if (a.duration !== b.duration) {
+              return a.duration - b.duration;
+            }
+            return a.price.amount - b.price.amount;
+          });
+
+          // Take top 3 only
+          const topTrips = sortedTrips.slice(0, 3);
+
           // Format trips for the LLM
-          const tripSummary = trips.slice(0, 5).map((trip) => ({
+          const tripSummary = topTrips.map((trip) => ({
             departureTime: trip.departureTime,
             arrivalTime: trip.arrivalTime,
             duration: `${Math.floor(trip.duration / 60)}h ${trip.duration % 60}m`,
@@ -142,12 +159,13 @@ async function handleToolCall(
           return {
             result: JSON.stringify({
               found: trips.length,
+              showing: topTrips.length,
               from: originPoi.name,
               to: destPoi.name,
               date,
               trips: tripSummary,
             }),
-            trips: trips.slice(0, 5),
+            trips: topTrips,
           };
         } catch (error) {
           console.error("Search error:", error);
@@ -215,11 +233,26 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        let isClosed = false;
+
+        const safeEnqueue = (data: Uint8Array) => {
+          if (!isClosed) {
+            controller.enqueue(data);
+          }
+        };
+
+        const safeClose = () => {
+          if (!isClosed) {
+            isClosed = true;
+            controller.close();
+          }
+        };
+
         try {
           let currentResponse = await anthropic.messages.create({
-            model: "claude-sonnet-4-20250514",
+            model: "claude-sonnet-4-5-20250929",
             max_tokens: 4096,
-            system: SYSTEM_PROMPT,
+            system: getSystemPrompt(),
             tools,
             messages,
           });
@@ -248,9 +281,9 @@ export async function POST(request: NextRequest) {
 
             // Continue conversation with tool result
             currentResponse = await anthropic.messages.create({
-              model: "claude-sonnet-4-20250514",
+              model: "claude-sonnet-4-5-20250929",
               max_tokens: 4096,
-              system: SYSTEM_PROMPT,
+              system: getSystemPrompt(),
               tools,
               messages: [
                 ...messages,
@@ -276,7 +309,7 @@ export async function POST(request: NextRequest) {
 
           if (textBlock) {
             // Send text content
-            controller.enqueue(
+            safeEnqueue(
               encoder.encode(
                 `data: ${JSON.stringify({ type: "text", content: textBlock.text })}\n\n`
               )
@@ -284,7 +317,7 @@ export async function POST(request: NextRequest) {
 
             // Send embedded trips if any
             if (allTrips.length > 0) {
-              controller.enqueue(
+              safeEnqueue(
                 encoder.encode(
                   `data: ${JSON.stringify({ type: "trips", trips: allTrips })}\n\n`
                 )
@@ -292,11 +325,11 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
+          safeEnqueue(encoder.encode("data: [DONE]\n\n"));
+          safeClose();
         } catch (error) {
           console.error("Chat error:", error);
-          controller.enqueue(
+          safeEnqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: "error",
@@ -304,7 +337,7 @@ export async function POST(request: NextRequest) {
               })}\n\n`
             )
           );
-          controller.close();
+          safeClose();
         }
       },
     });

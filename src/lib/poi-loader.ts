@@ -1,9 +1,18 @@
 /**
  * POI Loader - Fetches and caches Thailand POIs from the TC API
+ * Uses file-based cache to persist data across server restarts
  */
+
+import fs from "fs";
+import path from "path";
 
 const TC_API_BASE = "https://api.travelier.com/v1/tc_prod";
 const TC_API_KEY = process.env.TC_API_KEY || "";
+
+// File cache configuration
+const CACHE_DIR = path.join(process.cwd(), ".cache");
+const CACHE_FILE = path.join(CACHE_DIR, "poi-cache.json");
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface Station {
   id: string;
@@ -39,6 +48,59 @@ interface POICache {
 // In-memory cache
 let poiCache: POICache | null = null;
 let loadingPromise: Promise<POICache> | null = null;
+
+// File cache structure (JSON-serializable)
+interface FileCacheData {
+  pois: POI[];
+  cachedAt: number;
+}
+
+/**
+ * Load POIs from file cache if valid
+ */
+function loadFromFileCache(): POI[] | null {
+  try {
+    if (!fs.existsSync(CACHE_FILE)) {
+      return null;
+    }
+
+    const data = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as FileCacheData;
+    const age = Date.now() - data.cachedAt;
+
+    if (age > CACHE_MAX_AGE_MS) {
+      console.log("File cache expired, will refresh from API");
+      return null;
+    }
+
+    console.log(`Loaded ${data.pois.length} POIs from file cache (age: ${Math.round(age / 1000 / 60)} minutes)`);
+    return data.pois;
+  } catch (error) {
+    console.error("Failed to load file cache:", error);
+    return null;
+  }
+}
+
+/**
+ * Save POIs to file cache
+ */
+function saveToFileCache(pois: POI[]): void {
+  try {
+    // Ensure cache directory exists
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+
+    const data: FileCacheData = {
+      pois,
+      cachedAt: Date.now(),
+    };
+
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(data));
+    console.log(`Saved ${pois.length} POIs to file cache`);
+  } catch (error) {
+    console.error("Failed to save file cache:", error);
+  }
+}
 
 /**
  * Normalize a place name for matching
@@ -145,9 +207,10 @@ function buildCache(pois: POI[]): POICache {
 
 /**
  * Load POIs (with caching)
+ * Priority: 1) Memory cache, 2) File cache, 3) API fetch
  */
 export async function loadPOIs(): Promise<POICache> {
-  // Return cached if available
+  // Return memory cached if available
   if (poiCache) {
     return poiCache;
   }
@@ -159,7 +222,20 @@ export async function loadPOIs(): Promise<POICache> {
 
   // Start loading
   loadingPromise = (async () => {
+    // Try file cache first
+    const cachedPois = loadFromFileCache();
+    if (cachedPois) {
+      poiCache = buildCache(cachedPois);
+      loadingPromise = null;
+      return poiCache;
+    }
+
+    // Fetch from API
     const pois = await fetchAllThailandPOIs();
+
+    // Save to file cache for next restart
+    saveToFileCache(pois);
+
     poiCache = buildCache(pois);
     loadingPromise = null;
     return poiCache;
@@ -255,6 +331,40 @@ export async function translateToPOI(
 export async function getAllPOIs(): Promise<POI[]> {
   const cache = await loadPOIs();
   return cache.pois;
+}
+
+/**
+ * Get station name by ID from POI data
+ * Searches through all POIs to find the station
+ */
+export async function getStationNameById(stationId: string): Promise<string | null> {
+  const cache = await loadPOIs();
+
+  for (const poi of cache.pois) {
+    for (const station of poi.stations) {
+      if (station.id === stationId) {
+        return station.name;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build a station ID to name map for efficient lookups
+ */
+export async function buildStationMap(): Promise<Map<string, string>> {
+  const cache = await loadPOIs();
+  const stationMap = new Map<string, string>();
+
+  for (const poi of cache.pois) {
+    for (const station of poi.stations) {
+      stationMap.set(station.id, station.name);
+    }
+  }
+
+  return stationMap;
 }
 
 /**
