@@ -1,26 +1,81 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Backgrounds */
+  --color-white: #FFFFFF;
+  --color-off-white: #F7F6F6;
+
+  /* Primary Accent - Coral (warm) */
+  --color-coral: #EDB4AC;
+  --color-coral-light: #F3C8C2;
+
+  /* Secondary Accent - Teal (cool) */
+  --color-teal: #74BFB5;
+  --color-teal-light: #9DD4CD;
+  --color-teal-dark: #4A9A8F;
+
+  /* Dark/Text */
+  --color-dark: #072F2F;
+  --color-dark-secondary: #124D4D;
+
+  /* Neutral */
+  --color-gray: #A7A8A9;
+  --color-gray-light: #E5E5E5;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-coral: var(--color-coral);
+  --color-coral-light: var(--color-coral-light);
+  --color-teal: var(--color-teal);
+  --color-teal-light: var(--color-teal-light);
+  --color-teal-dark: var(--color-teal-dark);
+  --color-dark: var(--color-dark);
+  --color-dark-secondary: var(--color-dark-secondary);
+  --color-off-white: var(--color-off-white);
+  --color-gray: var(--color-gray);
+  --color-gray-light: var(--color-gray-light);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-off-white);
+  color: var(--color-dark);
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-off-white);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-dark-secondary);
+}
+
+/* Focus styles for accessibility */
+:focus-visible {
+  outline: 2px solid var(--color-teal);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
