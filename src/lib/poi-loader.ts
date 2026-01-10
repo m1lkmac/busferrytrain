@@ -11,7 +11,8 @@ const TC_API_KEY = process.env.TC_API_KEY || "";
 
 // File cache configuration
 const CACHE_DIR = path.join(process.cwd(), ".cache");
-const CACHE_FILE = path.join(CACHE_DIR, "poi-cache.json");
+const POI_CACHE_FILE = path.join(CACHE_DIR, "poi-cache.json");
+const OPERATOR_CACHE_FILE = path.join(CACHE_DIR, "operator-cache.json");
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface Station {
@@ -45,7 +46,7 @@ interface POICache {
   loadedAt: number;
 }
 
-// In-memory cache
+// In-memory cache for POIs
 let poiCache: POICache | null = null;
 let loadingPromise: Promise<POICache> | null = null;
 
@@ -55,16 +56,32 @@ interface FileCacheData {
   cachedAt: number;
 }
 
+// Operator types
+interface Operator {
+  id: string;
+  name: string;
+  logo_url?: string;
+}
+
+interface OperatorCacheData {
+  operators: Operator[];
+  cachedAt: number;
+}
+
+// In-memory cache for operators
+let operatorMap: Map<string, Operator> | null = null;
+let operatorLoadingPromise: Promise<Map<string, Operator>> | null = null;
+
 /**
  * Load POIs from file cache if valid
  */
 function loadFromFileCache(): POI[] | null {
   try {
-    if (!fs.existsSync(CACHE_FILE)) {
+    if (!fs.existsSync(POI_CACHE_FILE)) {
       return null;
     }
 
-    const data = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as FileCacheData;
+    const data = JSON.parse(fs.readFileSync(POI_CACHE_FILE, "utf-8")) as FileCacheData;
     const age = Date.now() - data.cachedAt;
 
     if (age > CACHE_MAX_AGE_MS) {
@@ -95,7 +112,7 @@ function saveToFileCache(pois: POI[]): void {
       cachedAt: Date.now(),
     };
 
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(data));
+    fs.writeFileSync(POI_CACHE_FILE, JSON.stringify(data));
     console.log(`Saved ${pois.length} POIs to file cache`);
   } catch (error) {
     console.error("Failed to save file cache:", error);
@@ -380,4 +397,195 @@ export function isPOIsCached(): boolean {
 export function clearPOICache(): void {
   poiCache = null;
   loadingPromise = null;
+}
+
+// ============================================
+// OPERATOR FUNCTIONS
+// ============================================
+
+/**
+ * Load operators from file cache if valid
+ */
+function loadOperatorsFromFileCache(): Operator[] | null {
+  try {
+    if (!fs.existsSync(OPERATOR_CACHE_FILE)) {
+      return null;
+    }
+
+    const data = JSON.parse(fs.readFileSync(OPERATOR_CACHE_FILE, "utf-8")) as OperatorCacheData;
+    const age = Date.now() - data.cachedAt;
+
+    if (age > CACHE_MAX_AGE_MS) {
+      console.log("Operator file cache expired, will refresh from API");
+      return null;
+    }
+
+    console.log(`Loaded ${data.operators.length} operators from file cache (age: ${Math.round(age / 1000 / 60)} minutes)`);
+    return data.operators;
+  } catch (error) {
+    console.error("Failed to load operator file cache:", error);
+    return null;
+  }
+}
+
+/**
+ * Save operators to file cache
+ */
+function saveOperatorsToFileCache(operators: Operator[]): void {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+    }
+
+    const data: OperatorCacheData = {
+      operators,
+      cachedAt: Date.now(),
+    };
+
+    fs.writeFileSync(OPERATOR_CACHE_FILE, JSON.stringify(data));
+    console.log(`Saved ${operators.length} operators to file cache`);
+  } catch (error) {
+    console.error("Failed to save operator file cache:", error);
+  }
+}
+
+/**
+ * Fetch all operators from TC API
+ * The API returns a presigned S3 URL, then we fetch actual data from that URL
+ */
+async function fetchAllOperators(): Promise<Operator[]> {
+  if (!TC_API_KEY) {
+    throw new Error("TC_API_KEY not configured");
+  }
+
+  console.log("Fetching operators from TC API...");
+
+  // Step 1: Get the presigned S3 URL from TC API
+  const url = `${TC_API_BASE}/operators?locale=en`;
+  const response = await fetch(url, {
+    headers: {
+      "x-api-key": TC_API_KEY,
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch operators: ${response.status}`);
+  }
+
+  // The response is the presigned S3 URL as a string (may be quoted)
+  let s3Url = await response.text();
+  // Remove surrounding quotes if present
+  s3Url = s3Url.trim().replace(/^["']|["']$/g, "");
+  console.log("Got presigned S3 URL for operators data");
+
+  // Step 2: Fetch actual operator data from S3
+  const s3Response = await fetch(s3Url.trim());
+  if (!s3Response.ok) {
+    throw new Error(`Failed to fetch operators from S3: ${s3Response.status}`);
+  }
+
+  const data = await s3Response.json();
+
+  // The S3 response has structure: { Data: {...}, Culture: "en", Type: "OperatingCarrier", Key: "..." }
+  // The actual operators are in the Data object (keyed by operator ID)
+  const operatorData = data.Data || data.data || data;
+
+  // Parse operators - S3 data has Pascal case fields: Id, Name, LogoURL
+  const operators: Operator[] = [];
+
+  if (typeof operatorData === "object" && operatorData !== null) {
+    for (const value of Object.values(operatorData)) {
+      if (typeof value === "object" && value !== null) {
+        const op = value as { Id?: string; Name?: string; LogoURL?: string; id?: string; name?: string; logo_url?: string };
+        const id = op.Id || op.id || "";
+        const name = op.Name || op.name || id;
+        const logo_url = op.LogoURL || op.logo_url;
+        if (id) {
+          operators.push({ id, name, logo_url });
+        }
+      }
+    }
+  } else if (Array.isArray(operatorData)) {
+    for (const op of operatorData) {
+      const id = op.Id || op.id || "";
+      const name = op.Name || op.name || id;
+      const logo_url = op.LogoURL || op.logo_url;
+      if (id) {
+        operators.push({ id, name, logo_url });
+      }
+    }
+  }
+
+  console.log(`Finished loading ${operators.length} operators`);
+  return operators;
+}
+
+/**
+ * Load operators and build lookup map
+ * Priority: 1) Memory cache, 2) File cache, 3) API fetch
+ */
+export async function loadOperators(): Promise<Map<string, Operator>> {
+  // Return memory cached if available
+  if (operatorMap) {
+    return operatorMap;
+  }
+
+  // If already loading, wait for it
+  if (operatorLoadingPromise) {
+    return operatorLoadingPromise;
+  }
+
+  // Start loading
+  operatorLoadingPromise = (async () => {
+    // Try file cache first
+    const cachedOperators = loadOperatorsFromFileCache();
+    if (cachedOperators) {
+      operatorMap = new Map(cachedOperators.map((op) => [op.id, op]));
+      operatorLoadingPromise = null;
+      return operatorMap;
+    }
+
+    // Fetch from API
+    const operators = await fetchAllOperators();
+
+    // Save to file cache
+    saveOperatorsToFileCache(operators);
+
+    operatorMap = new Map(operators.map((op) => [op.id, op]));
+    operatorLoadingPromise = null;
+    return operatorMap;
+  })();
+
+  return operatorLoadingPromise;
+}
+
+/**
+ * Get operator name by ID
+ */
+export async function getOperatorName(operatorId: string): Promise<string> {
+  const map = await loadOperators();
+  return map.get(operatorId)?.name || operatorId;
+}
+
+/**
+ * Build operator ID to name map for efficient lookups
+ */
+export async function buildOperatorMap(): Promise<Map<string, string>> {
+  const map = await loadOperators();
+  const nameMap = new Map<string, string>();
+
+  for (const [id, op] of map) {
+    nameMap.set(id, op.name);
+  }
+
+  return nameMap;
+}
+
+/**
+ * Clear operator cache (for testing)
+ */
+export function clearOperatorCache(): void {
+  operatorMap = null;
+  operatorLoadingPromise = null;
 }

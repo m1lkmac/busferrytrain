@@ -1,5 +1,5 @@
 import type { TripOption, VehicleType, TripSegment } from "@/types";
-import { buildStationMap } from "./poi-loader";
+import { buildStationMap, buildOperatorMap } from "./poi-loader";
 
 // API Configuration
 const TC_API_BASE = "https://api.travelier.com/v1/tc_prod";
@@ -153,10 +153,18 @@ export async function searchItineraries(params: ItineraryParams): Promise<TripOp
 
   const data: TCApiResponse = await response.json();
 
-  // Build station map for name lookups (uses cached POI data)
-  const stationMap = await buildStationMap();
+  // Build station and operator maps for name lookups (uses cached data)
+  const [stationMap, operatorMap] = await Promise.all([
+    buildStationMap(),
+    buildOperatorMap(),
+  ]);
 
-  return parseItinerariesResponse(data, departurePoi, arrivalPoi, stationMap, departureDate, pax);
+  return parseItinerariesResponse(data, departurePoi, arrivalPoi, stationMap, operatorMap, departureDate, pax);
+}
+
+// Get operator name from map, fallback to ID if not found
+function getOperatorNameFromMap(operatorId: string, operatorMap: Map<string, string>): string {
+  return operatorMap.get(operatorId) || operatorId;
 }
 
 function parseItinerariesResponse(
@@ -164,6 +172,7 @@ function parseItinerariesResponse(
   departurePoi: string,
   arrivalPoi: string,
   stationMap: Map<string, string>,
+  operatorMap: Map<string, string>,
   departureDate: string,
   pax: number
 ): TripOption[] {
@@ -196,7 +205,8 @@ function parseItinerariesResponse(
 
     // Get vehicle info for the first segment
     const vehicle = vehicleMap.get(firstSegment.vehicle_id);
-    const operatorName = vehicle?.operating_carrier_name || firstSegment.operating_carrier_id;
+    const operatorId = vehicle?.operating_carrier_id || firstSegment.operating_carrier_id;
+    const operatorName = getOperatorNameFromMap(operatorId, operatorMap);
 
     // Calculate total duration
     const totalDuration = itinerarySegments.reduce(
@@ -207,6 +217,7 @@ function parseItinerariesResponse(
     // Map segments to TripSegment format
     const tripSegments: TripSegment[] = itinerarySegments.map((seg) => {
       const segVehicle = vehicleMap.get(seg.vehicle_id);
+      const segOperatorId = segVehicle?.operating_carrier_id || seg.operating_carrier_id;
       return {
         origin: {
           id: seg.from_station,
@@ -221,7 +232,7 @@ function parseItinerariesResponse(
         departureTime: extractTime(seg.departure_time),
         arrivalTime: extractTime(seg.arrival_time),
         vehicleType: mapVehicleType(seg.transportation_types),
-        operator: segVehicle?.operating_carrier_name || seg.operating_carrier_id,
+        operator: getOperatorNameFromMap(segOperatorId, operatorMap),
       };
     });
 
