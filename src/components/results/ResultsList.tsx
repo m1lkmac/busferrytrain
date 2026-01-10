@@ -11,11 +11,11 @@ interface ResultsListProps {
 }
 
 export function ResultsList({ onSelectTrip }: ResultsListProps) {
-  const { filteredResults, isLoading, error, hasSearched, origin, destination, date, searchMeta, searchProgress } =
+  const { filteredResults, isLoading, error, hasSearched, origin, destination, date } =
     useSearch();
 
-  // Loading state - show skeleton only if no results yet
-  if (isLoading && filteredResults.length === 0) {
+  // Loading state
+  if (isLoading) {
     return (
       <section
         id="search-results-section"
@@ -23,34 +23,14 @@ export function ResultsList({ onSelectTrip }: ResultsListProps) {
         data-loading="true"
         className="w-full max-w-5xl mx-auto mt-8"
       >
-        {/* Progress bar */}
-        {searchProgress && (
-          <div className="mb-4 bg-white rounded-xl border border-gray-light/50 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-dark-secondary">
-                Searching stations...
-              </span>
-              <span className="text-sm text-teal font-medium">
-                {searchProgress.completed} / {searchProgress.total} combinations
-              </span>
-            </div>
-            <div className="w-full bg-gray-light rounded-full h-2">
-              <motion.div
-                className="bg-teal h-2 rounded-full"
-                initial={{ width: 0 }}
-                animate={{
-                  width: `${(searchProgress.completed / searchProgress.total) * 100}%`,
-                }}
-                transition={{ duration: 0.3 }}
-              />
-            </div>
-            {searchProgress.uniqueTripsFound > 0 && (
-              <p className="text-sm text-gray mt-2">
-                Found {searchProgress.uniqueTripsFound} trips so far...
-              </p>
-            )}
+        <div className="mb-4 bg-white rounded-xl border border-gray-light/50 p-4">
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-teal border-t-transparent" />
+            <span className="text-sm text-dark-secondary">
+              Searching for trips...
+            </span>
           </div>
-        )}
+        </div>
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
             <div
@@ -135,30 +115,6 @@ export function ResultsList({ onSelectTrip }: ResultsListProps) {
       data-results-count={filteredResults.length}
       className="w-full max-w-5xl mx-auto mt-8"
     >
-      {/* Progress bar when loading more results */}
-      {isLoading && searchProgress && (
-        <div className="mb-4 bg-white rounded-xl border border-teal/30 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-dark-secondary">
-              Finding more trips...
-            </span>
-            <span className="text-sm text-teal font-medium">
-              {searchProgress.completed} / {searchProgress.total} station combinations
-            </span>
-          </div>
-          <div className="w-full bg-gray-light rounded-full h-2">
-            <motion.div
-              className="bg-teal h-2 rounded-full"
-              initial={{ width: 0 }}
-              animate={{
-                width: `${(searchProgress.completed / searchProgress.total) * 100}%`,
-              }}
-              transition={{ duration: 0.3 }}
-            />
-          </div>
-        </div>
-      )}
-
       {/* Results header */}
       <div className="flex items-center justify-between mb-4">
         <div id="results-summary">
@@ -167,12 +123,6 @@ export function ResultsList({ onSelectTrip }: ResultsListProps) {
           </h2>
           <p className="text-sm text-gray">
             <span id="results-count">{filteredResults.length} trips found</span>
-            {isLoading && <span className="text-teal ml-1">(still searching...)</span>}
-            {!isLoading && searchMeta?.stationCombinations && searchMeta.stationCombinations > 1 && (
-              <span className="text-teal ml-2">
-                (searched {searchMeta.stationCombinations} station combinations)
-              </span>
-            )}
             {" · "}
             {new Date(date).toLocaleDateString("en-US", {
               weekday: "long",

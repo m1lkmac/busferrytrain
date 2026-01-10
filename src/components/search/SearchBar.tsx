@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ArrowRightLeft, Search, Calendar, Users, Loader2 } from "lucide-react";
-import { CityAutocomplete } from "./CityAutocomplete";
+import { PlaceAutocomplete } from "./PlaceAutocomplete";
 import { useSearch } from "@/hooks/useSearch";
 
 export function SearchBar() {
@@ -16,7 +16,7 @@ export function SearchBar() {
     setDestination,
     setDate,
     setPassengers,
-    swapCities,
+    swapPlaces,
     search,
   } = useSearch();
 
@@ -45,7 +45,7 @@ export function SearchBar() {
       >
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Origin */}
-          <CityAutocomplete
+          <PlaceAutocomplete
             id="search-origin-input"
             label="From"
             placeholder="Departure city"
@@ -58,7 +58,7 @@ export function SearchBar() {
           <div className="flex items-end justify-center lg:pb-3">
             <motion.button
               type="button"
-              onClick={swapCities}
+              onClick={swapPlaces}
               whileHover={{ scale: 1.1, rotate: 180 }}
               whileTap={{ scale: 0.9 }}
               transition={{ duration: 0.2 }}
@@ -71,7 +71,7 @@ export function SearchBar() {
           </div>
 
           {/* Destination */}
-          <CityAutocomplete
+          <PlaceAutocomplete
             id="search-destination-input"
             label="To"
             placeholder="Arrival city"

@@ -19,6 +19,20 @@ export interface City {
   stations: Station[];
 }
 
+// Place type (from Mapbox)
+export interface Place {
+  id: string;
+  name: string;
+  fullName: string; // e.g., "Bangkok, Thailand"
+  country: string;
+  countryCode: string;
+  region?: string;
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
+}
+
 // Search types
 export interface SearchParams {
   origin: string;

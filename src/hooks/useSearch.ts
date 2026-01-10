@@ -3,12 +3,12 @@
 import { useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { create } from "zustand";
-import type { City, TripOption, FilterState } from "@/types";
+import type { Place, TripOption, FilterState } from "@/types";
 
 interface SearchStore {
-  // Search inputs (now city-based)
-  origin: City | null;
-  destination: City | null;
+  // Search inputs (place-based)
+  origin: Place | null;
+  destination: Place | null;
   date: string;
   passengers: number;
 
@@ -21,39 +21,28 @@ interface SearchStore {
   error: string | null;
   hasSearched: boolean;
 
-  // Search progress (for streaming)
-  searchProgress: {
-    completed: number;
-    total: number;
-    uniqueTripsFound: number;
-    totalTripsFound: number;
-  } | null;
-
   // Search metadata
   searchMeta: {
-    stationCombinations?: number;
-    totalTripsFound?: number;
-    uniqueTrips?: number;
-    errors?: string[];
+    totalTrips?: number;
+    originPoi?: string;
+    destinationPoi?: string;
   } | null;
 
   // Filters
   filters: FilterState;
 
   // Actions
-  setOrigin: (city: City | null) => void;
-  setDestination: (city: City | null) => void;
+  setOrigin: (place: Place | null) => void;
+  setDestination: (place: Place | null) => void;
   setDate: (date: string) => void;
   setPassengers: (count: number) => void;
   setResults: (results: TripOption[], meta?: SearchStore["searchMeta"]) => void;
-  addResults: (newTrips: TripOption[]) => void;
-  setSearchProgress: (progress: SearchStore["searchProgress"]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setHasSearched: (hasSearched: boolean) => void;
   setFilters: (filters: Partial<FilterState>) => void;
   resetFilters: () => void;
-  swapCities: () => void;
+  swapPlaces: () => void;
   reset: () => void;
 }
 
@@ -136,7 +125,6 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
   isLoading: false,
   error: null,
   hasSearched: false,
-  searchProgress: null,
   searchMeta: null,
   filters: defaultFilters,
 
@@ -153,19 +141,6 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       searchMeta: meta || null,
     });
   },
-
-  addResults: (newTrips) => {
-    const { results, filters } = get();
-    // Merge and sort all trips
-    const allTrips = [...results, ...newTrips];
-    allTrips.sort((a, b) => a.departureTime.localeCompare(b.departureTime));
-    set({
-      results: allTrips,
-      filteredResults: applyFilters(allTrips, filters),
-    });
-  },
-
-  setSearchProgress: (progress) => set({ searchProgress: progress }),
 
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
@@ -188,7 +163,7 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
     });
   },
 
-  swapCities: () => {
+  swapPlaces: () => {
     const { origin, destination } = get();
     set({ origin: destination, destination: origin });
   },
@@ -204,7 +179,6 @@ export const useSearchStore = create<SearchStore>((set, get) => ({
       isLoading: false,
       error: null,
       hasSearched: false,
-      searchProgress: null,
       searchMeta: null,
       filters: defaultFilters,
     }),
@@ -218,8 +192,6 @@ export function useSearch() {
 
   // Sync URL params to store on mount
   useEffect(() => {
-    const from = searchParams.get("from"); // city name
-    const to = searchParams.get("to"); // city name
     const date = searchParams.get("date");
     const pax = searchParams.get("pax");
 
@@ -230,128 +202,36 @@ export function useSearch() {
     if (pax) {
       store.setPassengers(parseInt(pax) || 1);
     }
-
-    // Load cities from names if present
-    if (from) {
-      fetch(`/api/stations?city=${encodeURIComponent(from)}`)
-        .then((res) => res.json())
-        .then((city) => {
-          if (city && !city.error) {
-            store.setOrigin(city);
-          }
-        })
-        .catch(console.error);
-    }
-
-    if (to) {
-      fetch(`/api/stations?city=${encodeURIComponent(to)}`)
-        .then((res) => res.json())
-        .then((city) => {
-          if (city && !city.error) {
-            store.setDestination(city);
-          }
-        })
-        .catch(console.error);
-    }
-
-    // Auto-search if URL has all required params
-    if (from && to && date) {
-      // Small delay to allow city loading
-      setTimeout(() => {
-        const currentStore = useSearchStore.getState();
-        if (currentStore.origin && currentStore.destination && !currentStore.hasSearched) {
-          performSearch(currentStore.origin, currentStore.destination, date);
-        }
-      }, 500);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const performSearch = useCallback(
-    async (origin: City, destination: City, date: string) => {
+    async (origin: Place, destination: Place, date: string, passengers: number) => {
       store.setLoading(true);
       store.setError(null);
       store.setHasSearched(true);
-      store.setResults([]); // Clear previous results
-      store.setSearchProgress(null);
+      store.setResults([]);
 
       try {
-        // Use city names for multi-station search with streaming
         const params = new URLSearchParams({
-          originCity: origin.name,
-          destinationCity: destination.name,
+          origin: origin.name,
+          destination: destination.name,
           date,
-          stream: "true",
+          pax: String(passengers),
         });
 
         const response = await fetch(`/api/search?${params}`);
+        const data = await response.json();
 
         if (!response.ok) {
-          const data = await response.json();
           throw new Error(data.error || "Search failed");
         }
 
-        // Handle SSE stream
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error("Failed to read response stream");
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-
-                switch (data.type) {
-                  case "meta":
-                    // Initial metadata received
-                    store.setSearchProgress({
-                      completed: 0,
-                      total: data.totalCombinations,
-                      uniqueTripsFound: 0,
-                      totalTripsFound: 0,
-                    });
-                    break;
-
-                  case "trips":
-                    // New trips found - add them to results
-                    store.addResults(data.trips);
-                    break;
-
-                  case "progress":
-                    // Update progress
-                    store.setSearchProgress({
-                      completed: data.completed,
-                      total: data.total,
-                      uniqueTripsFound: data.uniqueTripsFound,
-                      totalTripsFound: data.totalTripsFound,
-                    });
-                    break;
-
-                  case "complete":
-                    // Search completed
-                    const currentState = useSearchStore.getState();
-                    store.setResults(currentState.results, data.meta);
-                    store.setSearchProgress(null);
-                    break;
-                }
-              } catch (parseError) {
-                console.error("Failed to parse SSE data:", parseError);
-              }
-            }
-          }
-        }
+        store.setResults(data.trips || [], {
+          totalTrips: data.meta?.totalTrips,
+          originPoi: data.origin?.poi,
+          destinationPoi: data.destination?.poi,
+        });
       } catch (err) {
         store.setError(err instanceof Error ? err.message : "Search failed");
         store.setResults([]);
@@ -371,7 +251,7 @@ export function useSearch() {
       return;
     }
 
-    // Update URL for deep-linking (using city names)
+    // Update URL for deep-linking
     const params = new URLSearchParams({
       from: origin.name,
       to: destination.name,
@@ -380,7 +260,7 @@ export function useSearch() {
     });
     router.push(`/?${params.toString()}`, { scroll: false });
 
-    await performSearch(origin, destination, date);
+    await performSearch(origin, destination, date, passengers);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, performSearch]);
 
