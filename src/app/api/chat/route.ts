@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
-import { searchRoutes } from "@/lib/api-client";
-import { searchStations, getStationById } from "@/lib/stations-loader";
+import { searchItineraries } from "@/lib/tc-api-client";
+import { translateToPOI } from "@/lib/poi-loader";
+import { searchStations } from "@/lib/stations-loader";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -98,65 +99,60 @@ async function handleToolCall(
       case "search_trips": {
         const { origin, destination, date } = toolInput;
 
-        // Find station IDs from names
-        const originStations = searchStations(origin, { limit: 1 });
-        const destStations = searchStations(destination, { limit: 1 });
+        // Translate place names to POI IDs
+        const originPoi = await translateToPOI(origin);
+        const destPoi = await translateToPOI(destination);
 
-        if (!originStations.length) {
+        if (!originPoi) {
           return {
-            result: `Could not find a station matching "${origin}". Try searching for a different city name.`,
+            result: `Could not find a location matching "${origin}". Try searching for a different city name.`,
           };
         }
 
-        if (!destStations.length) {
+        if (!destPoi) {
           return {
-            result: `Could not find a station matching "${destination}". Try searching for a different city name.`,
+            result: `Could not find a location matching "${destination}". Try searching for a different city name.`,
           };
         }
-
-        const originStation = originStations[0];
-        const destStation = destStations[0];
 
         try {
-          const results = await searchRoutes({
-            origin: originStation.id,
-            destination: destStation.id,
-            date,
-            company: "12go",
+          const trips = await searchItineraries({
+            departurePoi: originPoi.poi,
+            arrivalPoi: destPoi.poi,
+            departureDate: date,
           });
 
-          if (results.trips.length === 0) {
+          if (trips.length === 0) {
             return {
-              result: `No trips found from ${originStation.city} to ${destStation.city} on ${date}. This route might not have service on this date, or all trips might be sold out.`,
+              result: `No trips found from ${originPoi.name} to ${destPoi.name} on ${date}. This route might not have service on this date, or all trips might be sold out.`,
             };
           }
 
           // Format trips for the LLM
-          const tripSummary = results.trips.slice(0, 5).map((trip) => ({
+          const tripSummary = trips.slice(0, 5).map((trip) => ({
             departureTime: trip.departureTime,
             arrivalTime: trip.arrivalTime,
             duration: `${Math.floor(trip.duration / 60)}h ${trip.duration % 60}m`,
-            price: `฿${trip.price.amount}`,
+            price: `${trip.price.currency} ${trip.price.amount}`,
             operator: trip.operator,
             vehicleType: trip.vehicleType,
             availableSeats: trip.availableSeats,
-            bookingUrl: trip.redirectUrl,
           }));
 
           return {
             result: JSON.stringify({
-              found: results.trips.length,
-              from: originStation.city,
-              to: destStation.city,
+              found: trips.length,
+              from: originPoi.name,
+              to: destPoi.name,
               date,
               trips: tripSummary,
             }),
-            trips: results.trips.slice(0, 5),
+            trips: trips.slice(0, 5),
           };
         } catch (error) {
           console.error("Search error:", error);
           return {
-            result: `Search failed for ${originStation.city} to ${destStation.city}. The service might be temporarily unavailable.`,
+            result: `Search failed for ${originPoi.name} to ${destPoi.name}. The service might be temporarily unavailable.`,
           };
         }
       }
