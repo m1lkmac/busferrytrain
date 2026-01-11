@@ -1,5 +1,12 @@
 import type { TripOption, VehicleType, TripSegment } from "@/types";
 import { buildStationMap, buildOperatorMap } from "./poi-loader";
+import operatorMapping from "../../operator_tc_12go_mapping.json";
+
+// Build operator ID mapping (TC operator ID -> 12go source operator ID)
+const operatorIdMap = new Map<string, string>();
+for (const mapping of operatorMapping as Array<{ source_operator_id: string; tc_operator_id: string }>) {
+  operatorIdMap.set(mapping.tc_operator_id, mapping.source_operator_id);
+}
 
 // API Configuration
 const TC_API_BASE = "https://api.travelier.com/v1/tc_prod";
@@ -117,11 +124,22 @@ function generate12goUrl(
   originName: string,
   destinationName: string,
   date: string,
-  pax: number
+  pax: number,
+  tcOperatorId?: string
 ): string {
   const originSlug = slugifyStationName(originName);
   const destSlug = slugifyStationName(destinationName);
-  return `https://12go.com/en/travel/${originSlug}/${destSlug}?date=${date}&people=${pax}&direction=forward`;
+  let url = `https://12go.com/en/travel/${originSlug}/${destSlug}?date=${date}&people=${pax}&direction=forward`;
+
+  // Add operator_id if we have a mapping
+  if (tcOperatorId) {
+    const sourceOperatorId = operatorIdMap.get(tcOperatorId);
+    if (sourceOperatorId) {
+      url += `&operator_id=${sourceOperatorId}`;
+    }
+  }
+
+  return url;
 }
 
 export async function searchItineraries(params: ItineraryParams): Promise<TripOption[]> {
@@ -245,6 +263,11 @@ function parseItinerariesResponse(
     const originStationName = getStationName(firstSegment.from_station, stationMap);
     const destStationName = getStationName(lastSegment.to_station, stationMap);
 
+    // Format departure datetime for cart (YYYY-MM-DD HH:mm:ss)
+    const depDate = extractDate(firstSegment.departure_time);
+    const depTime = extractTime(firstSegment.departure_time);
+    const departureDateTime = `${depDate} ${depTime}:00`;
+
     const trip: TripOption = {
       id: itinerary.id,
       bookingToken: itinerary.id, // Use itinerary ID as booking token for now
@@ -258,12 +281,13 @@ function parseItinerariesResponse(
         currency,
       },
       operator: operatorName,
+      operatorId: operatorId,
       operatorLogo: vehicle?.image_url,
       vehicleType: mapVehicleType(firstSegment.transportation_types),
       availableSeats: itinerary.number_of_available_seats,
       amenities: [], // Not available from this API
       segments: tripSegments,
-      redirectUrl: generate12goUrl(originStationName, destStationName, departureDate, pax),
+      redirectUrl: generate12goUrl(originStationName, destStationName, departureDate, pax, operatorId),
       origin: {
         id: firstSegment.from_station,
         name: originStationName,
@@ -273,6 +297,12 @@ function parseItinerariesResponse(
         id: lastSegment.to_station,
         name: destStationName,
         city: arrivalPoi,
+      },
+      // Additional fields for direct checkout
+      cartData: {
+        classId: firstSegment.seat_class_id,
+        durationISO: firstSegment.travel_duration,
+        departureDateTime,
       },
     };
 

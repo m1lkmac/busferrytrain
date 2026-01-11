@@ -66,6 +66,7 @@ export interface TripOption {
     currency: string;
   };
   operator: string;
+  operatorId: string;
   operatorLogo?: string;
   vehicleType: VehicleType;
   availableSeats: number;
@@ -81,6 +82,12 @@ export interface TripOption {
     id: string;
     name: string;
     city: string;
+  };
+  // Additional fields for direct checkout
+  cartData?: {
+    classId: string;
+    durationISO: string; // PT2H format
+    departureDateTime: string; // 2025-01-22 15:30:00 format
   };
 }
 
