@@ -55,18 +55,20 @@ export function EmbeddedTripCard({ trip }: EmbeddedTripCardProps) {
       </div>
 
       {/* Times */}
-      <div className="flex items-center gap-2 text-sm text-dark-secondary">
-        <span className="font-medium">{trip.departureTime}</span>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-bold text-dark">{trip.departureTime}</span>
         <div className="flex items-center gap-1 text-gray text-xs">
+          <div className="w-4 h-px bg-gray-light" aria-hidden="true" />
           <Clock size={12} />
           <span>{formatDuration(trip.duration)}</span>
+          <div className="w-4 h-px bg-gray-light" aria-hidden="true" />
         </div>
-        <span className="font-medium">{trip.arrivalTime}</span>
+        <span className="font-bold text-dark">{trip.arrivalTime}</span>
       </div>
 
-      {/* Route */}
-      <div className="text-xs text-gray mt-1">
-        {trip.origin.city} → {trip.destination.city}
+      {/* Route - station names */}
+      <div className="text-xs text-dark-secondary mt-1">
+        {trip.origin.name} → {trip.destination.name}
       </div>
 
       {/* Book button */}
@@ -77,10 +79,10 @@ export function EmbeddedTripCard({ trip }: EmbeddedTripCardProps) {
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         className="mt-3 w-full flex items-center justify-center gap-1 px-3 py-2
-                   bg-teal text-white rounded-lg text-sm font-medium
-                   hover:bg-teal-dark transition-colors"
+                   bg-coral text-dark rounded-lg text-sm font-medium
+                   hover:bg-coral-light transition-colors"
       >
-        Book Now
+        Book
         <ExternalLink size={14} />
       </motion.a>
     </motion.div>

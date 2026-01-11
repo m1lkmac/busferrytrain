@@ -15,12 +15,9 @@ export function Header() {
           {/* Logo */}
           <Link
             href="/"
-            className="flex items-center gap-2 text-dark font-bold text-xl"
+            className="flex items-center text-dark font-bold text-xl"
             aria-label="busferrytrain.com - Home"
           >
-            <span className="text-2xl" aria-hidden="true">
-              🚌
-            </span>
             <span className="hidden sm:inline">busferrytrain</span>
             <span className="text-teal">.com</span>
           </Link>

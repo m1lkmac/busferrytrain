@@ -163,7 +163,7 @@ export async function searchItineraries(params: ItineraryParams): Promise<TripOp
 }
 
 // Get operator name from map, fallback to ID if not found
-function getOperatorNameFromMap(operatorId: string, operatorMap: Map<string, string>): string {
+function getOperatorName(operatorId: string, operatorMap: Map<string, string>): string {
   return operatorMap.get(operatorId) || operatorId;
 }
 
@@ -206,7 +206,7 @@ function parseItinerariesResponse(
     // Get vehicle info for the first segment
     const vehicle = vehicleMap.get(firstSegment.vehicle_id);
     const operatorId = vehicle?.operating_carrier_id || firstSegment.operating_carrier_id;
-    const operatorName = getOperatorNameFromMap(operatorId, operatorMap);
+    const operatorName = getOperatorName(operatorId, operatorMap);
 
     // Calculate total duration
     const totalDuration = itinerarySegments.reduce(
@@ -232,7 +232,7 @@ function parseItinerariesResponse(
         departureTime: extractTime(seg.departure_time),
         arrivalTime: extractTime(seg.arrival_time),
         vehicleType: mapVehicleType(seg.transportation_types),
-        operator: getOperatorNameFromMap(segOperatorId, operatorMap),
+        operator: getOperatorName(segOperatorId, operatorMap),
       };
     });
 
