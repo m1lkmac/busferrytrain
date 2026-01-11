@@ -1,10 +1,21 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Send, Loader2, StopCircle, AlertCircle } from "lucide-react";
 import { ChatMessage } from "./ChatMessage";
 import type { ChatMessage as ChatMessageType } from "@/types";
+
+// Fun loading messages that cycle while AI is thinking
+const thinkingMessages = [
+  "Thinking...",
+  "Riding the neurons...",
+  "Checking the schedules...",
+  "Asking the locals...",
+  "Packing bags...",
+  "Reading maps...",
+  "Catching ferries...",
+];
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
@@ -34,6 +45,7 @@ export function ChatConversation({
   onClearError,
 }: ChatConversationProps) {
   const [input, setInput] = useState("");
+  const [thinkingIndex, setThinkingIndex] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -46,6 +58,20 @@ export function ChatConversation({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Cycle through thinking messages every 5 seconds
+  useEffect(() => {
+    if (!isLoading || isStreaming) {
+      setThinkingIndex(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setThinkingIndex((prev) => (prev + 1) % thinkingMessages.length);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isLoading, isStreaming]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,18 +121,31 @@ export function ChatConversation({
         ) : (
           // Messages list
           <div className="space-y-4 max-w-3xl mx-auto">
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))}
+            {messages
+              .filter((message) => message.role === "user" || message.content)
+              .map((message) => (
+                <ChatMessage key={message.id} message={message} />
+              ))}
 
-            {/* Loading indicator */}
+            {/* Loading indicator with cycling messages */}
             {isLoading && !isStreaming && (
               <div className="flex gap-3">
                 <div className="w-8 h-8 rounded-full bg-teal flex items-center justify-center">
                   <Loader2 size={16} className="text-white animate-spin" />
                 </div>
-                <div className="px-4 py-3 bg-white border border-gray-light rounded-2xl rounded-bl-md">
-                  <span className="text-gray text-sm">Thinking...</span>
+                <div className="px-4 py-3 bg-white border border-gray-light rounded-2xl rounded-bl-md min-w-[140px]">
+                  <AnimatePresence mode="wait">
+                    <motion.span
+                      key={thinkingIndex}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      transition={{ duration: 0.3 }}
+                      className="text-gray text-sm block"
+                    >
+                      {thinkingMessages[thinkingIndex]}
+                    </motion.span>
+                  </AnimatePresence>
                 </div>
               </div>
             )}

@@ -83,7 +83,6 @@ export function useChat(options: UseChatOptions = {}) {
       );
 
       setIsLoading(true);
-      setIsStreaming(true);
 
       try {
         abortControllerRef.current = new AbortController();
@@ -134,6 +133,8 @@ export function useChat(options: UseChatOptions = {}) {
                 const parsed = JSON.parse(data);
 
                 if (parsed.type === "text") {
+                  // Mark as streaming once we receive content
+                  setIsStreaming(true);
                   fullContent += parsed.content;
                   // Update UI in real-time
                   setConversation((prev) => {
