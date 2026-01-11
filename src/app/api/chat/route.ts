@@ -97,7 +97,7 @@ const tools: Anthropic.Tool[] = [
   {
     name: "search_travel_content",
     description:
-      "Search for travel articles and recommendations about Thailand destinations. Use this when users ask about things to do, places to visit, day trips, beaches, food, nightlife, wildlife, or want travel tips for a specific destination.",
+      "Search for travel articles and recommendations about Thailand destinations. Use this when users ask about things to do, places to visit, day trips, beaches, food, nightlife, wildlife, or want travel tips for a specific destination. Returns up to 3 most relevant articles with images that will be displayed as cards to the user. Only call this once per destination - don't repeat calls for the same place.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -107,7 +107,7 @@ const tools: Anthropic.Tool[] = [
         },
         topic: {
           type: "string",
-          description: "Optional specific topic like 'beaches', 'food', 'nightlife', 'day trips', 'things to do'",
+          description: "Optional specific topic like 'beaches', 'food', 'nightlife', 'day trips', 'things to do' - helps find more relevant articles",
         },
       },
       required: ["destination"],
@@ -527,11 +527,12 @@ export async function POST(request: NextRequest) {
               );
             }
 
-            // Send embedded articles if any
+            // Send embedded articles if any (max 3, most relevant first)
             if (allArticles.length > 0) {
+              const topArticles = allArticles.slice(0, 3);
               safeEnqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "articles", articles: allArticles })}\n\n`
+                  `data: ${JSON.stringify({ type: "articles", articles: topArticles })}\n\n`
                 )
               );
             }
