@@ -32,6 +32,17 @@ When users ask about trips or routes:
 1. Use the search_trips tool to find actual options
 2. Present the results clearly with departure/arrival times, duration, price, and operator
 3. Add helpful tips when relevant (e.g., "Early morning buses are usually less crowded")
+4. After showing results, let users know they can ask for more options (different times, vehicle types, etc.)
+
+Handling follow-up requests for more trips (IMPORTANT - always use the search_trips tool for these):
+- When user asks for more/different options, you MUST call search_trips again using the same origin, destination, and date from the previous search
+- "more options", "show more", "other options" → call search_trips with skipCount=3 (or 6, 9 for subsequent)
+- "only buses/ferries/trains" → call search_trips with vehicleType filter
+- "morning/afternoon/evening/night" → call search_trips with timePreference filter
+- "cheaper", "under $X", "budget" → call search_trips with maxPrice filter
+- "faster", "shorter", "under X hours" → call search_trips with maxDuration filter
+- You can combine multiple filters in one search_trips call
+- ALWAYS call the search_trips tool to show trip cards - never just describe trips in text without calling the tool
 
 Important guidelines:
 - Always search for real data - don't make up trip information
@@ -44,12 +55,13 @@ Example response format when showing trips:
 "I found X options for you:
 
 🚌 **Fastest**: Depart 08:00 → Arrive 14:00 (6h)
-   Operator: 12Go Asia | ฿450
+   Operator: 12Go Asia | $45
 
 🚌 **Cheapest**: Depart 22:00 → Arrive 06:00 (8h)
-   Operator: 12Go Asia | ฿320
+   Operator: 12Go Asia | $32
 
-💡 Tip: Night buses save time and a hotel stay!"`;
+💡 Tip: Night buses save time and a hotel stay!
+Want to see more options or filter by vehicle type?"`;
 }
 
 // Tool definitions
@@ -57,7 +69,7 @@ const tools: Anthropic.Tool[] = [
   {
     name: "search_trips",
     description:
-      "Search for bus, ferry, or train trips between two locations on a specific date. Use this whenever a user asks about traveling between cities.",
+      "Search for bus, ferry, or train trips between two locations on a specific date. Use this whenever a user asks about traveling between cities. Can be called multiple times with different filters to show more options.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -74,6 +86,26 @@ const tools: Anthropic.Tool[] = [
           type: "string",
           description:
             "Travel date in YYYY-MM-DD format. If the user says 'tomorrow', calculate the actual date.",
+        },
+        vehicleType: {
+          type: "string",
+          description: "Filter by vehicle type: 'bus', 'ferry', or 'train'. Leave empty for all types.",
+        },
+        timePreference: {
+          type: "string",
+          description: "Filter by time of day: 'morning' (5:00-11:59), 'afternoon' (12:00-16:59), 'evening' (17:00-20:59), or 'night' (21:00-4:59). Leave empty for all times.",
+        },
+        skipCount: {
+          type: "number",
+          description: "Number of results to skip (for pagination). Use 3 to show next batch, 6 for third batch, etc. Default is 0.",
+        },
+        maxPrice: {
+          type: "number",
+          description: "Maximum price in USD. Only show trips at or below this price.",
+        },
+        maxDuration: {
+          type: "number",
+          description: "Maximum trip duration in hours. Only show trips that take this long or less (e.g., 6 for trips under 6 hours).",
         },
       },
       required: ["origin", "destination", "date"],
@@ -298,7 +330,10 @@ async function handleToolCall(
   try {
     switch (toolName) {
       case "search_trips": {
-        const { origin, destination, date } = toolInput;
+        const { origin, destination, date, vehicleType, timePreference, skipCount, maxPrice, maxDuration } = toolInput;
+        const skip = parseInt(skipCount as string) || 0;
+        const priceLimit = maxPrice ? parseFloat(maxPrice as string) : null;
+        const durationLimit = maxDuration ? parseFloat(maxDuration as string) * 60 : null; // Convert hours to minutes
 
         // Translate place names to POI IDs
         const originPoi = await translateToPOI(origin);
@@ -317,15 +352,60 @@ async function handleToolCall(
         }
 
         try {
-          const trips = await searchItineraries({
+          let trips = await searchItineraries({
             departurePoi: originPoi.poi,
             arrivalPoi: destPoi.poi,
             departureDate: date,
           });
 
+          // Apply vehicle type filter
+          if (vehicleType) {
+            const vehicleTypeLower = vehicleType.toLowerCase();
+            trips = trips.filter((trip) => {
+              const tripVehicle = trip.vehicleType?.toLowerCase() || "";
+              return tripVehicle.includes(vehicleTypeLower);
+            });
+          }
+
+          // Apply time preference filter
+          if (timePreference) {
+            trips = trips.filter((trip) => {
+              const hour = parseInt(trip.departureTime.split(":")[0]);
+              switch (timePreference.toLowerCase()) {
+                case "morning":
+                  return hour >= 5 && hour < 12;
+                case "afternoon":
+                  return hour >= 12 && hour < 17;
+                case "evening":
+                  return hour >= 17 && hour < 21;
+                case "night":
+                  return hour >= 21 || hour < 5;
+                default:
+                  return true;
+              }
+            });
+          }
+
+          // Apply max price filter
+          if (priceLimit !== null) {
+            trips = trips.filter((trip) => trip.price.amount <= priceLimit);
+          }
+
+          // Apply max duration filter
+          if (durationLimit !== null) {
+            trips = trips.filter((trip) => trip.duration <= durationLimit);
+          }
+
           if (trips.length === 0) {
+            const filterInfo = [];
+            if (vehicleType) filterInfo.push(`vehicle: ${vehicleType}`);
+            if (timePreference) filterInfo.push(`time: ${timePreference}`);
+            if (priceLimit) filterInfo.push(`max price: $${priceLimit}`);
+            if (durationLimit) filterInfo.push(`max duration: ${durationLimit / 60}h`);
+            const filterStr = filterInfo.length > 0 ? ` with filters (${filterInfo.join(", ")})` : "";
+
             return {
-              result: `No trips found from ${originPoi.name} to ${destPoi.name} on ${date}. This route might not have service on this date, or all trips might be sold out.`,
+              result: `No trips found from ${originPoi.name} to ${destPoi.name} on ${date}${filterStr}. Try removing filters or searching a different date.`,
             };
           }
 
@@ -337,11 +417,17 @@ async function handleToolCall(
             return a.price.amount - b.price.amount;
           });
 
-          // Take top 3 only
-          const topTrips = sortedTrips.slice(0, 3);
+          // Apply skip and take 3
+          const paginatedTrips = sortedTrips.slice(skip, skip + 3);
+
+          if (paginatedTrips.length === 0) {
+            return {
+              result: `No more trips available. You've seen all ${sortedTrips.length} options for this route.`,
+            };
+          }
 
           // Format trips for the LLM
-          const tripSummary = topTrips.map((trip) => ({
+          const tripSummary = paginatedTrips.map((trip) => ({
             departureTime: trip.departureTime,
             arrivalTime: trip.arrivalTime,
             duration: `${Math.floor(trip.duration / 60)}h ${trip.duration % 60}m`,
@@ -351,16 +437,21 @@ async function handleToolCall(
             availableSeats: trip.availableSeats,
           }));
 
+          const hasMore = sortedTrips.length > skip + 3;
+
           return {
             result: JSON.stringify({
-              found: trips.length,
-              showing: topTrips.length,
+              totalFound: sortedTrips.length,
+              showing: paginatedTrips.length,
+              skipped: skip,
+              hasMoreResults: hasMore,
               from: originPoi.name,
               to: destPoi.name,
               date,
+              filters: { vehicleType, timePreference, maxPrice: priceLimit, maxDuration: durationLimit ? durationLimit / 60 : null },
               trips: tripSummary,
             }),
-            trips: topTrips,
+            trips: paginatedTrips,
           };
         } catch (error) {
           console.error("Search error:", error);
