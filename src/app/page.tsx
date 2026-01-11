@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { motion } from "framer-motion";
+import { Search, Globe, Tag } from "lucide-react";
 import { Header } from "@/components/Header";
 import { SearchBar } from "@/components/search/SearchBar";
 import { ResultsList } from "@/components/results/ResultsList";
@@ -34,6 +35,54 @@ function HeroSection() {
         Find the best prices and schedules for your trip.
       </motion.p>
     </div>
+  );
+}
+
+function FeaturesSection() {
+  const features = [
+    {
+      icon: Search,
+      title: "Find the Best Travel Deals in Seconds",
+      description:
+        "Easily compare prices and travel times to discover the fastest and most affordable options for your journey.",
+    },
+    {
+      icon: Globe,
+      title: "Access a Complete Travel Marketplace",
+      description:
+        "Browse and book from a vast selection of routes and operators, all in one place—no more endless searching.",
+    },
+    {
+      icon: Tag,
+      title: "No Hidden Fees, No Markups—Just Honest Prices",
+      description:
+        "Get the best rates directly from providers with 100% transparent pricing—what you see is what you pay.",
+    },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.4 }}
+      className="mt-24 mb-8"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-12 max-w-5xl mx-auto">
+        {features.map((feature, index) => (
+          <div key={index} className="text-center max-w-xs mx-auto">
+            <div className="flex justify-center mb-4">
+              <feature.icon size={40} className="text-teal" strokeWidth={1.5} />
+            </div>
+            <h3 className="text-lg font-semibold text-dark mb-2">
+              {feature.title}
+            </h3>
+            <p className="text-sm text-dark-secondary leading-relaxed">
+              {feature.description}
+            </p>
+          </div>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 
@@ -72,6 +121,7 @@ function SearchResults({
 
 function HomeContent() {
   const [selectedTrip, setSelectedTrip] = useState<TripOption | null>(null);
+  const { hasSearched } = useSearch();
 
   return (
     <main className="min-h-screen bg-off-white">
@@ -80,6 +130,7 @@ function HomeContent() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <HeroSection />
         <SearchBar />
+        {!hasSearched && <FeaturesSection />}
         <SearchResults onSelectTrip={setSelectedTrip} />
       </div>
 
