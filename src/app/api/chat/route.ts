@@ -227,7 +227,7 @@ async function fetchTravelContent(destination: string, topic?: string): Promise<
         }
 
         articleDetails.push({
-          id: Buffer.from(articleUrl).toString("base64").substring(0, 12),
+          id: `article_${articleDetails.length}_${Date.now()}`,
           title,
           url: articleUrl,
           imageUrl,
