@@ -25,6 +25,7 @@ Your role:
 - Search for trips using the search_trips tool when users ask about routes
 - Provide travel tips and suggestions about Thailand
 - Answer questions about stations, operators, and routes
+- When users ask about destinations, things to do, places to visit, day trips, food, nightlife, or want travel recommendations - use the search_travel_content tool to find relevant articles
 - Be conversational, helpful, and concise
 
 When users ask about trips or routes:
@@ -93,13 +94,198 @@ const tools: Anthropic.Tool[] = [
       required: ["query"],
     },
   },
+  {
+    name: "search_travel_content",
+    description:
+      "Search for travel articles and recommendations about Thailand destinations. Use this when users ask about things to do, places to visit, day trips, beaches, food, nightlife, wildlife, or want travel tips for a specific destination.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        destination: {
+          type: "string",
+          description: "The destination or place the user is asking about (e.g., 'Koh Samui', 'Phuket', 'Chiang Mai', 'Krabi')",
+        },
+        topic: {
+          type: "string",
+          description: "Optional specific topic like 'beaches', 'food', 'nightlife', 'day trips', 'things to do'",
+        },
+      },
+      required: ["destination"],
+    },
+  },
 ];
+
+// Bookaway blog base URL for Thailand content
+const BOOKAWAY_BLOG_BASE = "https://www.bookaway.com/blog/category/destinations/thailand/";
+
+// Article structure for display
+interface ArticleData {
+  id: string;
+  title: string;
+  url: string;
+  imageUrl?: string;
+  excerpt?: string;
+  destination?: string;
+}
+
+// Fetch and parse travel content from Bookaway
+async function fetchTravelContent(destination: string, topic?: string): Promise<{ result: string; articles: ArticleData[] }> {
+  try {
+    // Normalize destination name for URL matching
+    const destLower = destination.toLowerCase().replace(/\s+/g, "-").replace(/^koh-/, "ko-");
+
+    // Common destination URL patterns on Bookaway
+    const searchTerms = [
+      destLower,
+      destLower.replace("ko-", "koh-"),
+      destination.toLowerCase().replace(/\s+/g, "-"),
+    ];
+
+    // First, try to fetch the Thailand blog index to find relevant articles
+    const indexResponse = await fetch(BOOKAWAY_BLOG_BASE, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; BusFerryTrain/1.0)",
+      },
+    });
+
+    if (!indexResponse.ok) {
+      return { result: `Could not fetch travel content. Status: ${indexResponse.status}`, articles: [] };
+    }
+
+    const indexHtml = await indexResponse.text();
+
+    // Extract article links and images from the index page
+    const articlePattern = /<a[^>]*href="(https:\/\/www\.bookaway\.com\/blog\/[^"]+)"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi;
+    const simpleArticlePattern = /href="(https:\/\/www\.bookaway\.com\/blog\/[^"]+)"/g;
+
+    const articlesWithImages: { url: string; image?: string }[] = [];
+    let match;
+
+    // Try to extract articles with images first
+    while ((match = articlePattern.exec(indexHtml)) !== null) {
+      articlesWithImages.push({ url: match[1], image: match[2] });
+    }
+
+    // Also get simple article links
+    const allArticleUrls = new Set<string>();
+    while ((match = simpleArticlePattern.exec(indexHtml)) !== null) {
+      allArticleUrls.add(match[1]);
+    }
+
+    // Find articles matching the destination
+    const relevantUrls = [...allArticleUrls].filter(url => {
+      const urlLower = url.toLowerCase();
+      return searchTerms.some(term => urlLower.includes(term)) ||
+             (topic && urlLower.includes(topic.toLowerCase().replace(/\s+/g, "-")));
+    });
+
+    // If no exact match, try broader Thailand articles
+    const thailandUrls = relevantUrls.length > 0
+      ? relevantUrls
+      : [...allArticleUrls].filter(url => url.includes("thailand")).slice(0, 4);
+
+    if (thailandUrls.length === 0) {
+      return {
+        result: `No specific articles found for ${destination}. Try asking about popular destinations like Phuket, Koh Samui, Chiang Mai, or Krabi.`,
+        articles: []
+      };
+    }
+
+    // Fetch details for top articles (up to 3)
+    const articleDetails: ArticleData[] = [];
+    const articlesToFetch = thailandUrls.slice(0, 3);
+
+    for (const articleUrl of articlesToFetch) {
+      try {
+        const articleResponse = await fetch(articleUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; BusFerryTrain/1.0)",
+          },
+        });
+
+        if (!articleResponse.ok) continue;
+
+        const articleHtml = await articleResponse.text();
+
+        // Extract title
+        const titleMatch = articleHtml.match(/<title>([^<]+)<\/title>/i);
+        const title = titleMatch ? titleMatch[1].replace(/ \| Bookaway.*$/i, "").trim() : "Travel Guide";
+
+        // Extract og:image or first article image
+        const ogImageMatch = articleHtml.match(/<meta[^>]*property="og:image"[^>]*content="([^"]+)"/i);
+        const featuredImageMatch = articleHtml.match(/<img[^>]*class="[^"]*featured[^"]*"[^>]*src="([^"]+)"/i);
+        const firstImageMatch = articleHtml.match(/<article[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"/i);
+        const imageUrl = ogImageMatch?.[1] || featuredImageMatch?.[1] || firstImageMatch?.[1];
+
+        // Extract meta description or first paragraph as excerpt
+        const descMatch = articleHtml.match(/<meta[^>]*name="description"[^>]*content="([^"]+)"/i);
+        let excerpt = descMatch?.[1];
+
+        if (!excerpt) {
+          const firstParagraph = articleHtml.match(/<article[^>]*>[\s\S]*?<p[^>]*>([^<]+)/i);
+          excerpt = firstParagraph?.[1]?.substring(0, 150);
+        }
+
+        articleDetails.push({
+          id: Buffer.from(articleUrl).toString("base64").substring(0, 12),
+          title,
+          url: articleUrl,
+          imageUrl,
+          excerpt: excerpt ? excerpt.trim() + (excerpt.length >= 150 ? "..." : "") : undefined,
+          destination,
+        });
+      } catch (err) {
+        console.error(`Error fetching article ${articleUrl}:`, err);
+      }
+    }
+
+    // Get content from first article for LLM context
+    let content = "";
+    if (articleDetails.length > 0) {
+      const mainArticleUrl = articleDetails[0].url;
+      try {
+        const mainResponse = await fetch(mainArticleUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; BusFerryTrain/1.0)" },
+        });
+        if (mainResponse.ok) {
+          const mainHtml = await mainResponse.text();
+          content = mainHtml
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
+            .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, "")
+            .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .substring(0, 2000);
+        }
+      } catch {
+        // Ignore, we'll use what we have
+      }
+    }
+
+    return {
+      result: JSON.stringify({
+        destination,
+        articlesFound: articleDetails.length,
+        mainArticle: articleDetails[0]?.title,
+        content: content || "Article content could not be extracted",
+      }),
+      articles: articleDetails,
+    };
+
+  } catch (error) {
+    console.error("Error fetching travel content:", error);
+    return { result: `Error fetching travel content for ${destination}: ${error}`, articles: [] };
+  }
+}
 
 // Handle tool calls
 async function handleToolCall(
   toolName: string,
   toolInput: Record<string, string>
-): Promise<{ result: string; trips?: unknown[] }> {
+): Promise<{ result: string; trips?: unknown[]; articles?: ArticleData[] }> {
   try {
     switch (toolName) {
       case "search_trips": {
@@ -196,6 +382,17 @@ async function handleToolCall(
         };
       }
 
+      case "search_travel_content": {
+        const { destination, topic } = toolInput;
+        console.log(`Fetching travel content for: ${destination}${topic ? ` (topic: ${topic})` : ""}`);
+
+        const { result, articles } = await fetchTravelContent(destination, topic);
+        return {
+          result,
+          articles,
+        };
+      }
+
       default:
         return { result: `Unknown tool: ${toolName}` };
     }
@@ -258,6 +455,7 @@ export async function POST(request: NextRequest) {
           });
 
           let allTrips: unknown[] = [];
+          let allArticles: ArticleData[] = [];
 
           // Handle tool use loop
           while (currentResponse.stop_reason === "tool_use") {
@@ -277,6 +475,11 @@ export async function POST(request: NextRequest) {
             // Collect trips from tool results
             if (toolResult.trips) {
               allTrips = [...allTrips, ...toolResult.trips];
+            }
+
+            // Collect articles from tool results
+            if (toolResult.articles) {
+              allArticles = [...allArticles, ...toolResult.articles];
             }
 
             // Continue conversation with tool result
@@ -320,6 +523,15 @@ export async function POST(request: NextRequest) {
               safeEnqueue(
                 encoder.encode(
                   `data: ${JSON.stringify({ type: "trips", trips: allTrips })}\n\n`
+                )
+              );
+            }
+
+            // Send embedded articles if any
+            if (allArticles.length > 0) {
+              safeEnqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "articles", articles: allArticles })}\n\n`
                 )
               );
             }

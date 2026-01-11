@@ -111,6 +111,16 @@ export interface FilterState {
   sortOrder: "asc" | "desc";
 }
 
+// Article type for travel content
+export interface Article {
+  id: string;
+  title: string;
+  url: string;
+  imageUrl?: string;
+  excerpt?: string;
+  destination?: string;
+}
+
 // Chat types
 export interface Conversation {
   id: string;
@@ -125,6 +135,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   embeddedTrips?: TripOption[];
+  embeddedArticles?: Article[];
   timestamp: string;
 }
 

@@ -136,6 +136,7 @@ export async function searchItineraries(params: ItineraryParams): Promise<TripOp
   url.searchParams.set("arrival_poi", arrivalPoi);
   url.searchParams.set("departure_date", departureDate);
   url.searchParams.set("pax", String(pax));
+  url.searchParams.set("currency", "USD"); // Normalize all prices to USD
 
   const response = await fetch(url.toString(), {
     method: "GET",

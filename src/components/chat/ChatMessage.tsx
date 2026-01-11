@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { User, Bot } from "lucide-react";
 import type { ChatMessage as ChatMessageType } from "@/types";
 import { EmbeddedTripCard } from "./EmbeddedTripCard";
+import { EmbeddedArticleCard } from "./EmbeddedArticleCard";
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -53,6 +54,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
           <div className="mt-3 space-y-2">
             {message.embeddedTrips.map((trip) => (
               <EmbeddedTripCard key={trip.id} trip={trip} />
+            ))}
+          </div>
+        )}
+
+        {/* Embedded articles */}
+        {message.embeddedArticles && message.embeddedArticles.length > 0 && (
+          <div className="mt-3 grid gap-2 grid-cols-1 sm:grid-cols-2">
+            {message.embeddedArticles.map((article) => (
+              <EmbeddedArticleCard key={article.id} article={article} />
             ))}
           </div>
         )}

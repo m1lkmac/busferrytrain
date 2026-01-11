@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { Conversation, ChatMessage, TripOption } from "@/types";
+import type { Conversation, ChatMessage, TripOption, Article } from "@/types";
 import {
   getConversation,
   createConversation,
@@ -116,6 +116,7 @@ export function useChat(options: UseChatOptions = {}) {
 
         let fullContent = "";
         let embeddedTrips: TripOption[] = [];
+        let embeddedArticles: Article[] = [];
 
         while (reader) {
           const { done, value } = await reader.read();
@@ -162,6 +163,21 @@ export function useChat(options: UseChatOptions = {}) {
                     }
                     return { ...prev, messages };
                   });
+                } else if (parsed.type === "articles") {
+                  embeddedArticles = parsed.articles;
+                  // Update with embedded articles
+                  setConversation((prev) => {
+                    if (!prev) return null;
+                    const messages = [...prev.messages];
+                    const lastIdx = messages.length - 1;
+                    if (messages[lastIdx]?.role === "assistant") {
+                      messages[lastIdx] = {
+                        ...messages[lastIdx],
+                        embeddedArticles,
+                      };
+                    }
+                    return { ...prev, messages };
+                  });
                 } else if (parsed.type === "error") {
                   throw new Error(parsed.message);
                 }
@@ -177,6 +193,7 @@ export function useChat(options: UseChatOptions = {}) {
           role: "assistant",
           content: fullContent,
           embeddedTrips: embeddedTrips.length > 0 ? embeddedTrips : undefined,
+          embeddedArticles: embeddedArticles.length > 0 ? embeddedArticles : undefined,
         });
 
         // Remove the temporary placeholder and add the real message
