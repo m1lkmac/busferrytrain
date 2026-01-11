@@ -191,9 +191,9 @@ async function fetchTravelContent(destination: string, topic?: string): Promise<
       };
     }
 
-    // Fetch details for top articles (up to 3)
+    // Fetch details for articles (fetch more, filter by title relevancy later)
     const articleDetails: ArticleData[] = [];
-    const articlesToFetch = thailandUrls.slice(0, 3);
+    const articlesToFetch = thailandUrls.slice(0, 8); // Fetch more to filter down
 
     for (const articleUrl of articlesToFetch) {
       try {
@@ -226,14 +226,23 @@ async function fetchTravelContent(destination: string, topic?: string): Promise<
           excerpt = firstParagraph?.[1]?.substring(0, 150);
         }
 
-        articleDetails.push({
-          id: `article_${articleDetails.length}_${Date.now()}`,
-          title,
-          url: articleUrl,
-          imageUrl,
-          excerpt: excerpt ? excerpt.trim() + (excerpt.length >= 150 ? "..." : "") : undefined,
-          destination,
-        });
+        // Only include article if destination name appears in title
+        const titleLower = title.toLowerCase();
+        const destWords = destination.toLowerCase().split(/\s+/);
+        const hasDestInTitle = destWords.some(word =>
+          word.length > 2 && titleLower.includes(word)
+        );
+
+        if (hasDestInTitle) {
+          articleDetails.push({
+            id: `article_${articleDetails.length}_${Date.now()}`,
+            title,
+            url: articleUrl,
+            imageUrl,
+            excerpt: excerpt ? excerpt.trim() + (excerpt.length >= 150 ? "..." : "") : undefined,
+            destination,
+          });
+        }
       } catch (err) {
         console.error(`Error fetching article ${articleUrl}:`, err);
       }
