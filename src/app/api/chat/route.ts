@@ -572,9 +572,10 @@ export async function POST(request: NextRequest) {
               toolUseBlock.input as Record<string, string>
             );
 
-            // Collect trips from tool results
+            // Replace trips with latest search results (not accumulate)
+            // This ensures filtered searches show the correct trips
             if (toolResult.trips) {
-              allTrips = [...allTrips, ...toolResult.trips];
+              allTrips = toolResult.trips;
             }
 
             // Collect articles from tool results
@@ -618,11 +619,12 @@ export async function POST(request: NextRequest) {
               )
             );
 
-            // Send embedded trips if any
+            // Send embedded trips if any (max 3 per message)
             if (allTrips.length > 0) {
+              const tripsToSend = allTrips.slice(0, 3);
               safeEnqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({ type: "trips", trips: allTrips })}\n\n`
+                  `data: ${JSON.stringify({ type: "trips", trips: tripsToSend })}\n\n`
                 )
               );
             }
